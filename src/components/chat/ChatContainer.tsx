@@ -7,7 +7,7 @@ import { generateId } from "@/lib/utils";
 
 function ChatContainer() {
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
-  const [isResponding, setIsResponding] = useState<boolean>(false);
+  // const [isResponding, setIsResponding] = useState<boolean>(false);
   const addUserMsg = async (content: string) => {
     const userMessage: ChatMessageType = {
       id: generateId(),
@@ -16,7 +16,7 @@ function ChatContainer() {
     };
 
     setMessages((prev) => [...prev, userMessage]);
-    setIsResponding(true);
+    // setIsResponding(true);
     // setTimeout(() => {
     //   const aiMessage: ChatMessageType = {
     //     id: generateId(),
@@ -26,6 +26,31 @@ function ChatContainer() {
     //   setMessages((prev) => [...prev, aiMessage]);
     //   setIsResponding(false);
     // }, 500);
+    // try {
+    //   const response = await fetch("/api/chat", {
+    //     method: "POST",
+    //     headers: { "Content-Type": "application/json" },
+    //     body: JSON.stringify({
+    //       messages: [...messages, userMessage].map(({ role, content }) => ({
+    //         role,
+    //         content,
+    //       })),
+    //     }),
+    //   });
+
+    //   const data = await response.json();
+
+    //   setMessages((prev) => [
+    //     ...prev,
+    //     { id: generateId(), role: data.role, content: data.content },
+    //   ]);
+    //   setIsResponding(false);
+    // } catch (error) {
+    //   console.log("Error ", error);
+    // } finally {
+    //   setIsResponding(false);
+    // }
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -37,18 +62,32 @@ function ChatContainer() {
           })),
         }),
       });
+      if (!response.body) {
+        throw new Error("No Stream");
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
 
-      const data = await response.json();
-
+      let assistantContent = "";
+      const assistantId = generateId();
       setMessages((prev) => [
         ...prev,
-        { id: generateId(), role: data.role, content: data.content },
+        { id: assistantId, role: "assistant", content: "" },
       ]);
-      setIsResponding(false);
+      while (true) {
+        const { value, done } = await reader.read();
+
+        if (done) break;
+        assistantContent += decoder.decode(value);
+
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantId ? { ...msg, content: assistantContent } : msg
+          )
+        );
+      }
     } catch (error) {
-      console.log("Error ", error);
-    } finally {
-      setIsResponding(false);
+      console.log("error", error);
     }
   };
   return (
@@ -58,11 +97,11 @@ function ChatContainer() {
         {messages.map((msg) => (
           <ChatMessage key={msg.id} message={msg} />
         ))}
-        {isResponding && <p>Assistant is thinking ...</p>}
+        {/* {isResponding && <p>Assistant is thinking ...</p>} */}
       </div>
 
       <div>
-        <ChatInput onSend={addUserMsg} disabled={isResponding} />
+        <ChatInput onSend={addUserMsg} />
       </div>
     </div>
   );

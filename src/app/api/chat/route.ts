@@ -1,22 +1,38 @@
 import { NextResponse } from "next/server";
-import { ChatMessage } from "@/types/chat";
-
-interface ChatRequest {
-  messages: Pick<ChatMessage, "role" | "content">[];
-}
+import { runPlanner } from "../../../agents/planner";
+import { runResearcher } from "../../../agents/researcher";
+import { runWriterStream } from "../../../agents/writer";
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as ChatRequest;
-  const lastMessage = body.messages.at(-1);
-  console.log(lastMessage);
-  if (!lastMessage || lastMessage.role !== "user") {
-    return NextResponse.json({ error: "Invalid Request" }, { status: 400 });
-  }
-  return NextResponse.json(
-    {
-      role: "assistant",
-      content: `you said , ${lastMessage?.content}`,
-    },
-    { status: 200 }
+  const { messages } = await req.json();
+  const lastUserMessage = messages.at(-1)?.content;
+  const plan = await runPlanner(lastUserMessage);
+  let research = plan.needsResearch
+    ? await runResearcher(lastUserMessage, plan.steps)
+    : null;
+
+  const stream = await runWriterStream(
+    lastUserMessage,
+    plan.steps,
+    research?.notes ?? null
   );
+
+  const encoder = new TextEncoder();
+
+  const readableStream = new ReadableStream({
+    async start(controller) {
+      for await (const chunk of stream) {
+        const token = chunk.choices[0]?.delta?.content;
+        if (token) controller.enqueue(encoder.encode(token));
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(readableStream, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-cache",
+    },
+  });
 }
